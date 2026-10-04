@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Traductor</title>
+<style>
+:root{--bg:#eef2f6;--card:#fff;--ink:#14213d;--muted:#5b6b82;--line:#cfd8e3;--accent:#1f6f8b;--accent-ink:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1621;--card:#16212f;--ink:#e6edf5;--muted:#8fa1b7;--line:#2a3a4e;--accent:#4fb0cf;--accent-ink:#0e1621}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:1rem;background:var(--bg);color:var(--ink);font:16px/1.5 Georgia,"Times New Roman",serif}
+main{width:100%;max-width:860px}
+h1{font-size:2rem;margin:0 0 1rem;letter-spacing:-.01em}
+.bar{display:flex;gap:.5rem;align-items:center;margin-bottom:.75rem}
+select,button{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:.5rem .7rem}
+select{flex:1;min-width:0}
+button{cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:bold}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.panes{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
+.pane{background:var(--card);border:1px solid var(--line);border-radius:6px;display:flex;flex-direction:column}
+textarea,.out{flex:1;min-height:220px;padding:.9rem;border:0;background:transparent;color:var(--ink);font:inherit;resize:vertical;white-space:pre-wrap}
+textarea:focus{outline:none}
+.pane:focus-within{border-color:var(--accent)}
+.foot{display:flex;justify-content:space-between;align-items:center;gap:.5rem;padding:.4rem .6rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+.foot button{padding:.25rem .5rem;font-size:.85rem}
+.actions{margin-top:.75rem;display:flex;gap:.5rem;align-items:center}
+#status{color:var(--muted);font-size:.9rem}
+#status.error{color:#c0392b}
+@media (max-width:640px){.panes{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Traductor</h1>
+  <div class="bar">
+    <select id="from" aria-label="Idioma de origen"></select>
+    <button id="swap" title="Intercambiar idiomas" aria-label="Intercambiar idiomas">⇄</button>
+    <select id="to" aria-label="Idioma de destino"></select>
+  </div>
+  <div class="panes">
+    <div class="pane">
+      <textarea id="src" maxlength="500" placeholder="Escribe o pega el texto aquí" aria-label="Texto original"></textarea>
+      <div class="foot"><span id="count">0 / 500</span><button id="clear">Borrar</button></div>
+    </div>
+    <div class="pane">
+      <div class="out" id="out" aria-live="polite"></div>
+      <div class="foot"><span></span><span><button id="listen">Escuchar</button> <button id="copy">Copiar</button></span></div>
+    </div>
+  </div>
+  <div class="actions">
+    <button class="primary" id="go">Traducir</button>
+    <span id="status">Ctrl + Enter para traducir</span>
+  </div>
+</main>
+<script>
+const LANGS={es:"Español",en:"Inglés",fr:"Francés",de:"Alemán",it:"Italiano",pt:"Portugués",ca:"Catalán",nl:"Neerlandés",ru:"Ruso",ja:"Japonés",zh:"Chino",ko:"Coreano",ar:"Árabe"};
+const $=id=>document.getElementById(id);
+const from=$("from"),to=$("to"),src=$("src"),out=$("out"),status=$("status");
+
+from.add(new Option("Detectar idioma","autodetect"));
+for(const [c,n] of Object.entries(LANGS)){from.add(new Option(n,c));to.add(new Option(n,c));}
+from.value="autodetect";to.value="en";
+
+function setStatus(t,err=false){status.textContent=t;status.className=err?"error":"";}
+
+async function translate(){
+  const q=src.value.trim();
+  if(!q){out.textContent="";return setStatus("Escribe algo para traducir.",true);}
+  if(from.value===to.value)return setStatus("Elige idiomas distintos.",true);
+  setStatus("Traduciendo…");
+  try{
+    const url="https://api.mymemory.translated.net/get?q="+encodeURIComponent(q)+"&langpair="+from.value+"|"+to.value;
+    const r=await fetch(url);
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const d=await r.json();
+    if(d.responseStatus!==200)throw new Error(d.responseDetails||"Error del servicio");
+    out.textContent=d.responseData.translatedText;
+    setStatus("Listo.");
+  }catch(e){setStatus("No se pudo traducir: "+e.message+". Revisa tu conexión e inténtalo de nuevo.",true);}
+}
+
+$("go").onclick=translate;
+src.addEventListener("keydown",e=>{if(e.ctrlKey&&e.key==="Enter")translate();});
+src.addEventListener("input",()=>$("count").textContent=src.value.length+" / 500");
+$("clear").onclick=()=>{src.value="";out.textContent="";$("count").textContent="0 / 500";src.focus();};
+$("swap").onclick=()=>{
+  if(from.value==="autodetect")return setStatus("Elige un idioma de origen para intercambiar.",true);
+  [from.value,to.value]=[to.value,from.value];
+  [src.value,out.textContent]=[out.textContent,src.value];
+  $("count").textContent=src.value.length+" / 500";
+};
+$("copy").onclick=async()=>{
+  if(!out.textContent)return;
+  try{await navigator.clipboard.writeText(out.textContent);setStatus("Copiado.");}
+  catch{setStatus("No se pudo copiar.",true);}
+};
+$("listen").onclick=()=>{
+  if(!out.textContent||!("speechSynthesis" in window))return;
+  const u=new SpeechSynthesisUtterance(out.textContent);u.lang=to.value;
+  speechSynthesis.cancel();speechSynthesis.speak(u);
+};
+</script>
+</body>
+</html>
